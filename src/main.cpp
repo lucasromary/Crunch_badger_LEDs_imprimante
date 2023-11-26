@@ -18,7 +18,7 @@ extern "C"
 #define MQTT_HOST "mqtt.ci-ciad.utbm.fr"
 #define MQTT_PORT 1883
 
-#define MQTT_TOPIC "IMP3D/U3_01/Leds/State"
+#define MQTT_TOPIC "IMP3D/U3_1/Leds/State"
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
@@ -34,8 +34,11 @@ int alarme_minutes = 0;
 int alarme_heures = 0;
 int preparation_time = 0;
 
+bool mqtt_connect = 0;
+bool wifi_connect = 0;
+
 // NEOPIXEL
-#define PIN D7       // On Trinket or Gemma, suggest changing this to 1
+#define PIN D10       // On Trinket or Gemma, suggest changing this to 1
 #define NUMPIXELS 16 // Popular NeoPixel ring size
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
@@ -44,9 +47,11 @@ void setLedGreen()
   pixels.clear(); // Set all pixel colors to 'off'
   for (int i = 0; i < NUMPIXELS; i++)
   {
-    pixels.setPixelColor(i, pixels.Color(0, 20, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 50, 0));
+    delay(10);
   }
   pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(10);
 }
 
 void setLedRed()
@@ -54,9 +59,11 @@ void setLedRed()
   pixels.clear(); // Set all pixel colors to 'off'
   for (int i = 0; i < NUMPIXELS; i++)
   {
-    pixels.setPixelColor(i, pixels.Color(20, 0, 0));
+    pixels.setPixelColor(i, pixels.Color(50, 0, 0));
+    delay(10);
   }
   pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(10);
 }
 
 void setLedYellow()
@@ -64,9 +71,11 @@ void setLedYellow()
   pixels.clear(); // Set all pixel colors to 'off'
   for (int i = 0; i < NUMPIXELS; i++)
   {
-    pixels.setPixelColor(i, pixels.Color(20, 20, 0));
+    pixels.setPixelColor(i, pixels.Color(50, 20, 0));
+    delay(10);
   }
   pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(10);
 }
 
 void setLedBlue()
@@ -74,9 +83,11 @@ void setLedBlue()
   pixels.clear(); // Set all pixel colors to 'off'
   for (int i = 0; i < NUMPIXELS; i++)
   {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 20));
+    pixels.setPixelColor(i, pixels.Color(0, 0, 50));
+    delay(10);
   }
   pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(10);
 }
 
 void setLedConnectingMQTT()
@@ -84,9 +95,11 @@ void setLedConnectingMQTT()
   pixels.clear();
   for (int i = 0; i < NUMPIXELS - 1; i += 2)
   {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 20));
+    pixels.setPixelColor(i, pixels.Color(0, 0, 50));
+    delay(10);
   }
   pixels.show(); // Send the updated pixel colors to the hardware.
+  delay(10);
 }
 
 void connectToWifi()
@@ -100,7 +113,6 @@ void connectToMqtt()
 {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
-  setLedGreen();
 }
 
 void WiFiEvent(WiFiEvent_t event)
@@ -120,8 +132,8 @@ void WiFiEvent(WiFiEvent_t event)
 
     break;
   case SYSTEM_EVENT_STA_DISCONNECTED:
-    WiFi.disconnect();
-    WiFi.reconnect();
+    //WiFi.disconnect();
+    //WiFi.reconnect();
     Serial.println("WiFi lost connection");
     xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
     xTimerStart(wifiReconnectTimer, 0);
@@ -133,13 +145,15 @@ void onMqttConnect(bool sessionPresent)
 {
   Serial.println("Connected to MQTT.");
   mqttClient.subscribe(MQTT_TOPIC, 2);
+  mqtt_connect = 1;
+  setLedGreen();
   // mqttClient.publish("test/lol", 1, true, "test 2");
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
   Serial.println("Disconnected from MQTT.");
-  setLedConnectingMQTT();
+  mqtt_connect = 0;
   if (WiFi.isConnected())
   {
     xTimerStart(mqttReconnectTimer, 0);
@@ -187,31 +201,33 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
     timer_minutes = messageTemp.toInt() + preparation_time;
     timeClient.update();
 
-    if(timer_minutes>60){
-      commande_heures = timer_minutes/60;
+    if (timer_minutes >= 60)
+    {
+      commande_heures = timer_minutes / 60;
     }
+
     Serial.print(commande_heures);
     Serial.print("h");
-    commande_minutes = timer_minutes%60;
+    commande_minutes = timer_minutes % 60;
     Serial.println(commande_minutes);
 
     Serial.println("Reveil à :");
 
-    if(timeClient.getMinutes()+commande_minutes >60){
+    if (timeClient.getMinutes() + commande_minutes >= 60)
+    {
       commande_heures++;
     }
 
-    alarme_minutes = (timeClient.getMinutes()+commande_minutes)%60;
-    alarme_heures = (timeClient.getHours()+commande_heures)%24;
+    alarme_minutes = (timeClient.getMinutes() + commande_minutes) % 60;
+    alarme_heures = (timeClient.getHours() + commande_heures) % 24;
 
     Serial.print(alarme_heures);
     Serial.print(" ");
     Serial.print(alarme_minutes);
 
-
     setLedRed();
   }
-  
+
   if (String(topic) == MQTT_TOPIC && messageTemp == "0") // On allume en rouge
   {
     alarme_heures = 0;
@@ -262,13 +278,29 @@ void loop()
 
   timeClient.update();
   Serial.println(timeClient.getFormattedTime());
+/*
+  setLedGreen();
+  delay(1000);
+  setLedRed();
+
+  */
   delay(1000);
 
-  if(timeClient.getMinutes() == alarme_minutes && alarme_heures == timeClient.getHours()){
+/*
+  if(mqtt_connect){
+    setLedGreen();
+  }
+  else{
+    setLedRed();
+  }
+  */
+
+  if (timeClient.getMinutes() == alarme_minutes && alarme_heures == timeClient.getHours())
+  {
     Serial.println("FINI !");
     setLedGreen();
-    alarme_heures =-1;
-    alarme_minutes =-1;
+    alarme_heures = -1;
+    alarme_minutes = -1;
   }
 
   /*
